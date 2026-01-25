@@ -1,0 +1,32 @@
+name: sync PtoCSV_long.csv to jpx_data
+
+on:
+  workflow_dispatch:
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout chart
+        uses: actions/checkout@v4
+
+      - name: Clone jpx_data
+        run: |
+          git clone https://x-access-token:${{ secrets.SYNC_TOKEN }}@github.com/keroppa88/jpx_data.git d
+
+      - name: Copy CSV (overwrite)
+        run: |
+          cp -f PtoCSV_long.csv d/PtoCSV_long.csv
+
+      - name: Commit & push if changed
+        run: |
+          cd d
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          if git status --porcelain | grep -q .; then
+            git add PtoCSV_long.csv
+            git commit -m "sync: PtoCSV_long.csv from chart [skip ci]"
+            git push
+          else
+            echo "No changes; skip."
+          fi
