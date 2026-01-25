@@ -7,4 +7,19 @@ jobs:
   test:
     runs-on: ubuntu-latest
     steps:
-      - run: echo "sync test OK"
+      - name: Clone d
+        run: |
+          git clone https://x-access-token:${{ secrets.SYNC_TOKEN }}@github.com/keroppa88/jpx_data.git d
+
+      - name: Write test file
+        run: |
+          echo "ok" > d/_sync_test.txt
+
+      - name: Commit & push
+        run: |
+          cd d
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add _sync_test.txt
+          git commit -m "sync test"
+          git push
