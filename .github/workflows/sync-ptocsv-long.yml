@@ -1,7 +1,12 @@
 name: sync PtoCSV_long.csv to jpx_data
 
 on:
+  push:
+    branches: [ main ]
+    paths:
+      - 'PtoCSV_long.csv'
   workflow_dispatch:
+  
 
 jobs:
   sync:
