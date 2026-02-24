@@ -1,4 +1,4 @@
-name: Daily get Update
+name: Boj get Update
 
 on:
   workflow_dispatch:
