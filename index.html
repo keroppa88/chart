@@ -170,6 +170,26 @@
       cursor:pointer;
     }
 
+    .tfGroup{ display:flex; align-items:center; }
+    .tfBtn{
+      padding:5px 12px;
+      border:1px solid var(--line);
+      background:var(--chip);
+      font-size:12px; font-weight:600;
+      color:#374151;
+      cursor:pointer;
+      transition: background 0.15s, color 0.15s;
+    }
+    .tfBtn:first-child{ border-radius:8px 0 0 8px; }
+    .tfBtn:last-child{ border-radius:0 8px 8px 0; }
+    .tfBtn:not(:first-child){ border-left:none; }
+    .tfBtn.active{
+      background:#374151;
+      color:#fff;
+      border-color:#374151;
+    }
+    .tfBtn.active + .tfBtn{ border-left-color:#374151; }
+
   </style>
 </head>
 <body>
@@ -182,6 +202,11 @@
         <span class="sub" id="autoStatus">PtoCSV_long.csv を自動読込します</span>
 
         <div class="headerRight">
+          <div class="group tfGroup" style="padding:4px 6px; gap:2px;">
+            <button class="tfBtn active" data-tf="daily">日足</button>
+            <button class="tfBtn" data-tf="weekly">週足</button>
+            <button class="tfBtn" data-tf="monthly">月足</button>
+          </div>
           <span class="chip" id="latestChip"><span class="muted">最新</span> -</span>
           <span class="chip" id="viewChip"><span class="muted">表示範囲</span> -</span>
         </div>
@@ -274,6 +299,7 @@ let showPreBase = false;
 let showBaseLine = true;
 
 let availableNames = [];
+let timeframe = 'daily'; // 'daily' | 'weekly' | 'monthly'
 
 let isDragging = false;
 let dragStartX = 0;
@@ -530,6 +556,44 @@ function renderSymbolConfigUI(){
     box.appendChild(item);
   }
 }
+// --- Resampling: weekly (週末終値) and monthly (月末終値) ---
+// Returns the ISO week key for a date string "YYYY-MM-DD"
+function weekKey(dateStr){
+  const d = new Date(dateStr);
+  // Use ISO week: week starts Monday. Key = year + week number.
+  const thu = new Date(d);
+  thu.setDate(thu.getDate() - ((d.getDay() + 6) % 7) + 3); // nearest Thursday
+  const jan4 = new Date(thu.getFullYear(), 0, 4);
+  const wk = 1 + Math.round(((thu - jan4) / 86400000 - 3 + ((jan4.getDay() + 6) % 7)) / 7);
+  return thu.getFullYear() + '-W' + String(wk).padStart(2, '0');
+}
+
+function monthKey(dateStr){
+  return dateStr.slice(0, 7); // "YYYY-MM"
+}
+
+// Resample longRows to weekly or monthly.
+// For each (name, period), keep the row with the latest date (= end-of-period closing).
+function resampleRows(rows, mode){
+  if(mode === 'daily') return rows;
+  const keyFn = (mode === 'weekly') ? weekKey : monthKey;
+
+  // Group by (name, periodKey) -> keep last row per period (rows assumed date-sorted)
+  const map = new Map(); // "name\tperiodKey" -> row
+  for(const r of rows){
+    const pk = keyFn(r.date);
+    const k = r.name + '\t' + pk;
+    const prev = map.get(k);
+    if(!prev || r.date >= prev.date){
+      map.set(k, r);
+    }
+  }
+  // Return as array, sorted by date then name
+  const out = Array.from(map.values());
+  out.sort((a, b) => a.date.localeCompare(b.date) || a.name.localeCompare(b.name));
+  return out;
+}
+
 function buildPerf(rows, lookback, symbols){
   const active = (symbols || []).filter(s => s && s.key);
   if(active.length === 0){
@@ -697,7 +761,8 @@ function snapWindowToBase(){ offsetX = 0; }
 function recompute(){
   if(!longRows || longRows.length===0) return;
 
-  perfData = buildPerf(longRows, baseLookback, symbolConfig);
+  const rows = resampleRows(longRows, timeframe);
+  perfData = buildPerf(rows, baseLookback, symbolConfig);
 
   const maxLookback = Math.max(1, (perfData.dates.length>0 ? perfData.dates.length-1 : 1));
   baseLookback = Math.min(baseLookback, maxLookback);
@@ -1035,6 +1100,18 @@ function bindControls(){
 
   countRange.addEventListener('input', ()=>setCount(countRange.value));
   countNum.addEventListener('change', ()=>setCount(countNum.value));
+
+  // Timeframe buttons
+  document.querySelectorAll('.tfBtn').forEach(btn=>{
+    btn.addEventListener('click', ()=>{
+      const tf = btn.dataset.tf;
+      if(tf === timeframe) return;
+      timeframe = tf;
+      document.querySelectorAll('.tfBtn').forEach(b=>b.classList.remove('active'));
+      btn.classList.add('active');
+      recompute();
+    });
+  });
 }
 
 
@@ -1202,7 +1279,8 @@ async function autoLoad(){
     sanitizeSymbolConfig(availableNames);
     renderSymbolConfigUI();
 
-    perfData = buildPerf(longRows, baseLookback, symbolConfig);
+    const initialRows = resampleRows(longRows, timeframe);
+    perfData = buildPerf(initialRows, baseLookback, symbolConfig);
 
     updateLatestChip();
 
