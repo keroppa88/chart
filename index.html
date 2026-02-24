@@ -1221,8 +1221,43 @@ function forwardFillMonthly(bojRows, dailyDates){
     arr.sort((a,b)=> a.yyyymm.localeCompare(b.yyyymm));
   }
 
+  // Find the earliest YYYYMM across all BOJ series
+  let earliestBojYM = null;
+  for(const arr of byName.values()){
+    if(arr.length > 0){
+      const first = arr[0].yyyymm;
+      if(!earliestBojYM || first < earliestBojYM) earliestBojYM = first;
+    }
+  }
+
   // Get sorted unique daily dates
-  const sortedDates = Array.from(new Set(dailyDates)).sort();
+  const sortedDailyDates = Array.from(new Set(dailyDates)).sort();
+
+  // Find the earliest YYYYMM present in daily dates
+  const earliestDailyYM = sortedDailyDates.length > 0
+    ? sortedDailyDates[0].slice(0,4) + sortedDailyDates[0].slice(5,7)
+    : null;
+
+  // Generate monthly representative dates (YYYY-MM-01) for months
+  // in BOJ data that predate the earliest daily date.
+  // This ensures pre-2020 BOJ data is not discarded.
+  const preDates = [];
+  if(earliestBojYM && earliestDailyYM && earliestBojYM < earliestDailyYM){
+    let ym = earliestBojYM;
+    while(ym < earliestDailyYM){
+      const yyyy = ym.slice(0,4);
+      const mm = ym.slice(4,6);
+      preDates.push(`${yyyy}-${mm}-01`);
+      // Advance to next month
+      let y = parseInt(yyyy, 10);
+      let m = parseInt(mm, 10) + 1;
+      if(m > 12){ m = 1; y++; }
+      ym = String(y).padStart(4,'0') + String(m).padStart(2,'0');
+    }
+  }
+
+  // Combine: monthly dates for pre-daily period + existing daily dates
+  const sortedDates = preDates.concat(sortedDailyDates);
 
   const result = [];
   for(const [name, monthly] of byName){
@@ -1240,7 +1275,6 @@ function forwardFillMonthly(bojRows, dailyDates){
         result.push({date, name, value: currentValue});
       }
     }
-    // Reset for next series
   }
   return result;
 }
