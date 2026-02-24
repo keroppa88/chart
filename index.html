@@ -1268,6 +1268,20 @@ async function autoLoad(){
       }
     }catch(e){ console.warn('bojapi_monetarybase.csv 読込スキップ:', e); }
 
+    // Load BOJ kigyobukka (企業物価指数) CSV
+    try{
+      const bojKRes = await fetch('./bojapi_kigyobukka.csv', {cache:'no-store'});
+      if(bojKRes.ok){
+        const bojKBuf = await bojKRes.arrayBuffer();
+        const bojKMonthly = parseBojCsv(bojKBuf);
+        if(bojKMonthly.length > 0){
+          const dailyDates = longRows.map(r => r.date);
+          const filledRows = forwardFillMonthly(bojKMonthly, dailyDates);
+          longRows = longRows.concat(filledRows);
+        }
+      }
+    }catch(e){ console.warn('bojapi_kigyobukka.csv 読込スキップ:', e); }
+
     el.textContent=`ロード完了: ${longRows.length.toLocaleString()}行`;
 
     const allNames = getAvailableNames(longRows);
