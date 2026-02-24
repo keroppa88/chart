@@ -1098,6 +1098,76 @@ async function loadListCsv(allNames){
 }
 
 
+function parseBojCsv(arrayBuffer){
+  // Decode Shift_JIS
+  const dec = new TextDecoder('shift-jis', {fatal:false});
+  const text = dec.decode(arrayBuffer);
+  const lines = text.trim().split(/\r?\n/);
+
+  // Find header line (starts with SERIES_CODE)
+  let headerIdx = -1;
+  for(let i=0;i<lines.length;i++){
+    if(lines[i].startsWith('SERIES_CODE')){
+      headerIdx = i;
+      break;
+    }
+  }
+  if(headerIdx < 0) return [];
+
+  const header = lines[headerIdx].split(',');
+  const iName = header.indexOf('NAME_OF_TIME_SERIES_J');
+  const iDate = header.indexOf('SURVEY_DATES');
+  const iVal  = header.indexOf('VALUES');
+  if(iName<0 || iDate<0 || iVal<0) return [];
+
+  const rows = [];
+  for(let i=headerIdx+1;i<lines.length;i++){
+    const cols = lines[i].split(',');
+    if(cols.length <= Math.max(iName, iDate, iVal)) continue;
+    const name = (cols[iName]||'').trim();
+    const yyyymm = (cols[iDate]||'').trim();
+    const value = toNum(cols[iVal]);
+    if(!name || !yyyymm || Number.isNaN(value)) continue;
+    rows.push({name, yyyymm, value});
+  }
+  return rows;
+}
+
+function forwardFillMonthly(bojRows, dailyDates){
+  // Group by name: name -> sorted [{yyyymm, value}]
+  const byName = new Map();
+  for(const r of bojRows){
+    if(!byName.has(r.name)) byName.set(r.name, []);
+    byName.get(r.name).push({yyyymm: r.yyyymm, value: r.value});
+  }
+  for(const arr of byName.values()){
+    arr.sort((a,b)=> a.yyyymm.localeCompare(b.yyyymm));
+  }
+
+  // Get sorted unique daily dates
+  const sortedDates = Array.from(new Set(dailyDates)).sort();
+
+  const result = [];
+  for(const [name, monthly] of byName){
+    let mi = 0;
+    let currentValue = null;
+    for(const date of sortedDates){
+      // Convert YYYY-MM-DD to YYYYMM
+      const ym = date.slice(0,4) + date.slice(5,7);
+      // Advance monthly pointer while the next month is <= current ym
+      while(mi < monthly.length && monthly[mi].yyyymm <= ym){
+        currentValue = monthly[mi].value;
+        mi++;
+      }
+      if(currentValue !== null){
+        result.push({date, name, value: currentValue});
+      }
+    }
+    // Reset for next series
+  }
+  return result;
+}
+
 async function autoLoad(){
   const el=document.getElementById('autoStatus');
   try{
@@ -1106,6 +1176,21 @@ async function autoLoad(){
     if(!res.ok) throw new Error(`fetch失敗: ${res.status} ${res.statusText}`);
     const text=await res.text();
     longRows=parseLongFormat(text);
+
+    // Load BOJ monetary base CSV
+    try{
+      const bojRes = await fetch('./bojapi_monetarybase.csv', {cache:'no-store'});
+      if(bojRes.ok){
+        const bojBuf = await bojRes.arrayBuffer();
+        const bojMonthly = parseBojCsv(bojBuf);
+        if(bojMonthly.length > 0){
+          const dailyDates = longRows.map(r => r.date);
+          const filledRows = forwardFillMonthly(bojMonthly, dailyDates);
+          longRows = longRows.concat(filledRows);
+        }
+      }
+    }catch(e){ console.warn('bojapi_monetarybase.csv 読込スキップ:', e); }
+
     el.textContent=`ロード完了: ${longRows.length.toLocaleString()}行`;
 
     const allNames = getAvailableNames(longRows);
